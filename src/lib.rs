@@ -82,11 +82,7 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 		})
 	});
 
-	for result in match_branches.clone() {
-		result?;
-	}
-
-	let match_branches = match_branches.filter_map(Result::ok).collect::<Vec<_>>();
+	let match_branches = match_branches.collect::<syn::Result<Vec<_>>>()?;
 	let output = quote! {
 		impl ::axum::response::IntoResponse for #enum_name {
 			fn into_response(self) -> ::axum::response::Response {
