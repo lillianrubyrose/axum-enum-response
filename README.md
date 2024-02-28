@@ -15,9 +15,12 @@ struct SomeData {
 enum ErrorResponse {
 	#[status_code(UNAUTHORIZED)]
 	Unauthorized, // 401, empty body
+	#[status_code(FORBIDDEN)]
+	#[message("mew")]
+	Forbidden, // 403, body = {"message": "mew"}
 	#[status_code(BAD_REQUEST)]
 	BadRequest(SomeData),
 	#[status_code(INTERNAL_SERVER_ERROR)]
-	InternalServerError(#[key("error")] String), // 500, body = {"error": STRING}
+	InternalServerError(#[key("error")] String), // 500, body = {"error": STRING},
 }
 ```

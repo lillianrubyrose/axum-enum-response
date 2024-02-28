@@ -9,6 +9,7 @@ use futures::StreamExt;
 #[derive(EnumIntoResponse)]
 enum TestResponse {
 	#[status_code(INTERNAL_SERVER_ERROR)]
+	#[message("InternalServerError")]
 	InternalServerError,
 }
 
@@ -33,6 +34,6 @@ async fn no_fields() {
 		assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
 		let body = get_body(res).await;
-		assert_eq!(body, "");
+		assert_eq!(body, "{\"message\":\"InternalServerError\"}");
 	}
 }

@@ -5,10 +5,13 @@
 //! ```
 //! #[derive(axum_enum_response::EnumIntoResponse)]
 //! enum ErrorResponse {
-//!     #[status_code(UNAUTHORIZED)]
-//!     Unauthorized, // 401, empty body
-//!     #[status_code(INTERNAL_SERVER_ERROR)]
-//!     InternalServerError(#[key("error")] String), // 500, body = {"error": STRING}
+//!    #[status_code(UNAUTHORIZED)]
+//!    Unauthorized, // 401, empty body
+//!    #[status_code(FORBIDDEN)]
+//!    #[message("mew")]
+//!    Forbidden, // 403, body = {"message": "mew"}
+//!    #[status_code(INTERNAL_SERVER_ERROR)]
+//!    InternalServerError(#[key("error")] String), // 500, body = {"error": STRING}
 //! }
 //! ```
 //!
@@ -35,7 +38,7 @@ use syn::{parse_macro_input, Attribute, Data, DeriveInput, Error, Ident, Meta};
 
 type TokenStream2 = proc_macro2::TokenStream;
 
-#[proc_macro_derive(EnumIntoResponse, attributes(status_code, key))]
+#[proc_macro_derive(EnumIntoResponse, attributes(status_code, key, message))]
 pub fn enum_into_response(input: TokenStream) -> TokenStream {
 	let input = parse_macro_input!(input as DeriveInput);
 	match impl_enum_into_response(input) {
@@ -56,7 +59,7 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 	let match_branches = data_enum.variants.into_iter().map(|variant| {
 		let ident = &variant.ident;
 		let body_field = parse_fields(&variant.fields)?;
-		let AttributeData { status_code } = parse_attributes(ident, &variant.attrs)?;
+		let AttributeData { status_code, message } = parse_attributes(ident, &variant.attrs)?;
 
 		syn::Result::Ok(if let Some(body_field) = body_field {
 			if let Some(key) = body_field.json_key {
@@ -67,6 +70,10 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 				quote! {
 					#enum_name::#ident(v) => (::axum::http::StatusCode::#status_code, Some(::axum::Json(v).into_response())),
 				}
+			}
+		} else if let Some(message) = message {
+			quote! {
+				#enum_name::#ident => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([("message", #message)])).into_response())),
 			}
 		} else {
 			quote! {
@@ -153,6 +160,7 @@ fn parse_fields(fields: &syn::Fields) -> syn::Result<Option<FieldData>> {
 
 struct AttributeData {
 	status_code: TokenStream2,
+	message: Option<TokenStream2>,
 }
 
 fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<AttributeData> {
@@ -164,24 +172,22 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 	}
 
 	let mut status_code = None;
+	let mut message = None;
 
 	for attribute in attributes {
 		let Some(iden) = attribute.path().get_ident() else {
 			return Err(Error::new_spanned(ident, "You must name attributes"));
 		};
 
-		if let "status_code" = iden.to_string().as_str() {
-			if let Meta::List(list) = &attribute.meta {
-				let tokens = &list.tokens;
-				status_code = Some(quote! {
-					#tokens
-				});
-			} else {
-				return Err(Error::new_spanned(
-					attribute,
-					"Invalid usage of 'status_code' attribute",
-				));
+		match iden.to_string().as_str() {
+			"status_code" => {
+				status_code = Some(get_list_tokens("status_code", attribute)?);
 			}
+			"message" => {
+				message = Some(get_list_tokens("status_code", attribute)?);
+			}
+
+			_ => {}
 		}
 	}
 
@@ -189,5 +195,17 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 		return Err(Error::new_spanned(ident, "'status_code' attribute must be specified"));
 	};
 
-	Ok(AttributeData { status_code })
+	Ok(AttributeData { status_code, message })
+}
+
+#[inline]
+fn get_list_tokens(name: &str, attribute: &Attribute) -> syn::Result<TokenStream2> {
+	if let Meta::List(list) = &attribute.meta {
+		let tokens = &list.tokens;
+		return Ok(quote! {
+			#tokens
+		});
+	}
+
+	Err(Error::new_spanned(attribute, format!("Invalid usage of '{name}'")))
 }
