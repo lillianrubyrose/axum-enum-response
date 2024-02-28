@@ -2,7 +2,12 @@
 name = "axum-enum-response"
 version = "0.1.0"
 edition = "2021"
+description = "Use enums as Axum Response's easily"
 license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/axum-enum-response"
+repository = "https://github.com/lilyrrose/axum-enum-response"
+categories = ["web-programming"]
+keywords = ["axum"]
 
 [lib]
 proc-macro = true

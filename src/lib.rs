@@ -1,3 +1,32 @@
+//! Simple way to use an enum as an Axum Response
+//! MSRV: 1.65.0
+//!
+//! # Example Usage
+//! ```
+//! #[derive(EnumIntoResponse)]
+//! enum ErrorResponse {
+//!     #[status_code(UNAUTHORIZED)]
+//!     Unauthorized, // 401, empty body
+//!     #[status_code(INTERNAL_SERVER_ERROR)]
+//!     InternalServerError(#[key("error")] String), // 500, body = {"error": STRING}
+//! }
+//! ```
+//!
+//! You can also use any struct that implements `serde::Serialize` as a field like this:
+//! ```no_run
+//! #[derive(serde::Serialize)]
+//! struct SomeData {
+//!     meow: String,
+//! }
+//!
+//! #[derive(EnumIntoResponse)]
+//! enum ErrorResponse {
+//!     #[status_code(BAD_REQUEST)]
+//!     BadRequest(SomeData), // 400, body = {"meow": STRING}
+//! }
+//! ```
+//!
+
 #![warn(clippy::pedantic)]
 
 use proc_macro::TokenStream;

@@ -47,7 +47,11 @@ async fn compiles() {
 	}
 
 	{
-		let res = TestResponse::Unauthorized(UnauthorizedStruct { a: "Hi".into(), b: 1337 }).into_response();
+		let res = TestResponse::Unauthorized(UnauthorizedStruct {
+			a: "Hi".into(),
+			b: 1337,
+		})
+		.into_response();
 		assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
 		let body = get_body(res).await;
