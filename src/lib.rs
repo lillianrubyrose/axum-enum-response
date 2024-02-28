@@ -3,7 +3,7 @@
 //!
 //! # Example Usage
 //! ```
-//! #[derive(EnumIntoResponse)]
+//! #[derive(axum_enum_response::EnumIntoResponse)]
 //! enum ErrorResponse {
 //!     #[status_code(UNAUTHORIZED)]
 //!     Unauthorized, // 401, empty body
@@ -19,7 +19,7 @@
 //!     meow: String,
 //! }
 //!
-//! #[derive(EnumIntoResponse)]
+//! #[derive(axum_enum_response::EnumIntoResponse)]
 //! enum ErrorResponse {
 //!     #[status_code(BAD_REQUEST)]
 //!     BadRequest(SomeData), // 400, body = {"meow": STRING}
@@ -83,7 +83,7 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 	let output = quote! {
 		impl ::axum::response::IntoResponse for #enum_name {
 			fn into_response(self) -> ::axum::response::Response {
-				let (status_code, body) = match self {
+				let (status_code, body): (::axum::http::StatusCode, Option<::axum::response::Response>) = match self {
 					#( #match_branches )*
 				};
 
