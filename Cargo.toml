@@ -2,10 +2,10 @@
 name = "axum-enum-response"
 version = "0.1.2"
 edition = "2021"
-description = "Use enums as Axum Response's easily"
+description = "Easily create axum::http::Response's from Enums!"
 license = "MIT OR Apache-2.0"
 documentation = "https://docs.rs/axum-enum-response"
-repository = "https://github.com/lilyrrose/axum-enum-response"
+repository = "https://github.com/lillianrubyrose/axum-enum-response"
 categories = ["web-programming"]
 keywords = ["axum"]
 
@@ -19,6 +19,6 @@ syn = "2.0.51"
 
 [dev-dependencies]
 axum = "0.7.4"
-tokio = { version = "1", features = ["full"]}
+tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 serde = { version = "1.0.197", features = ["derive"] }

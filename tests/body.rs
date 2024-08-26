@@ -9,7 +9,7 @@ use futures::StreamExt;
 #[derive(EnumIntoResponse)]
 enum TestResponse {
 	#[status_code(INTERNAL_SERVER_ERROR)]
-	#[message("InternalServerError")]
+	#[body("InternalServerError")]
 	InternalServerError,
 }
 
@@ -29,11 +29,9 @@ async fn get_body(res: Response<Body>) -> String {
 
 #[tokio::test]
 async fn no_fields() {
-	{
-		let res = TestResponse::InternalServerError.into_response();
-		assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+	let res = TestResponse::InternalServerError.into_response();
+	assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-		let body = get_body(res).await;
-		assert_eq!(body, "{\"message\":\"InternalServerError\"}");
-	}
+	let body = get_body(res).await;
+	assert_eq!(body, "{\"error\":\"InternalServerError\"}");
 }

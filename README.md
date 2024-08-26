@@ -2,7 +2,7 @@
 
 MSRV: 1.65.0
 
-Easily use an enum as an Axum Response type.
+Easily create axum::http::Response's from Enums!
 
 # Example Usage
 ```rs

@@ -34,11 +34,11 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DeriveInput, Error, Ident, Meta};
+use syn::{parse::Parse, parse_macro_input, Attribute, Data, DeriveInput, Error, Ident, LitStr, Meta, Token};
 
 type TokenStream2 = proc_macro2::TokenStream;
 
-#[proc_macro_derive(EnumIntoResponse, attributes(status_code, key, message))]
+#[proc_macro_derive(EnumIntoResponse, attributes(status_code, key, body))]
 pub fn enum_into_response(input: TokenStream) -> TokenStream {
 	let input = parse_macro_input!(input as DeriveInput);
 	match impl_enum_into_response(input) {
@@ -59,7 +59,7 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 	let match_branches = data_enum.variants.into_iter().map(|variant| {
 		let ident = &variant.ident;
 		let body_field = parse_fields(&variant.fields)?;
-		let AttributeData { status_code, message } = parse_attributes(ident, &variant.attrs)?;
+		let AttributeData { status_code, body } = parse_attributes(ident, &variant.attrs)?;
 
 		syn::Result::Ok(if let Some(body_field) = body_field {
 			if let Some(key) = body_field.json_key {
@@ -71,9 +71,10 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 					#enum_name::#ident(v) => (::axum::http::StatusCode::#status_code, Some(::axum::Json(v).into_response())),
 				}
 			}
-		} else if let Some(message) = message {
+		} else if let Some(BodyAttribute { key, value }) = body {
+			let key = key.unwrap_or_else(|| "error".to_string());
 			quote! {
-				#enum_name::#ident => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([("message", #message)])).into_response())),
+				#enum_name::#ident => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([(#key, #value)])).into_response())),
 			}
 		} else {
 			quote! {
@@ -156,7 +157,36 @@ fn parse_fields(fields: &syn::Fields) -> syn::Result<Option<FieldData>> {
 
 struct AttributeData {
 	status_code: TokenStream2,
-	message: Option<TokenStream2>,
+	body: Option<BodyAttribute>,
+}
+
+struct BodyAttribute {
+	key: Option<String>,
+	value: String,
+}
+
+impl Parse for BodyAttribute {
+	fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+		let first = input.parse::<LitStr>()?;
+		let mut second: Option<LitStr> = None;
+
+		if input.peek(Token![=>]) {
+			input.parse::<Token![=>]>()?;
+			second = Some(input.parse::<LitStr>()?);
+		}
+
+		if let Some(value) = second {
+			Ok(Self {
+				key: Some(first.value()),
+				value: value.value(),
+			})
+		} else {
+			Ok(Self {
+				key: None,
+				value: first.value(),
+			})
+		}
+	}
 }
 
 fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<AttributeData> {
@@ -168,7 +198,7 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 	}
 
 	let mut status_code = None;
-	let mut message = None;
+	let mut body = None;
 
 	for attribute in attributes {
 		let Some(iden) = attribute.path().get_ident() else {
@@ -177,10 +207,11 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 
 		match iden.to_string().as_str() {
 			"status_code" => {
-				status_code = Some(get_list_tokens("status_code", attribute)?);
+				status_code = Some(attribute.meta.require_list()?.tokens.clone());
 			}
-			"message" => {
-				message = Some(get_list_tokens("status_code", attribute)?);
+
+			"body" => {
+				body = Some(attribute.meta.require_list()?.parse_args::<BodyAttribute>()?);
 			}
 
 			_ => {}
@@ -191,17 +222,5 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 		return Err(Error::new_spanned(ident, "'status_code' attribute must be specified"));
 	};
 
-	Ok(AttributeData { status_code, message })
-}
-
-#[inline]
-fn get_list_tokens(name: &str, attribute: &Attribute) -> syn::Result<TokenStream2> {
-	if let Meta::List(list) = &attribute.meta {
-		let tokens = &list.tokens;
-		return Ok(quote! {
-			#tokens
-		});
-	}
-
-	Err(Error::new_spanned(attribute, format!("Invalid usage of '{name}'")))
+	Ok(AttributeData { status_code, body })
 }
