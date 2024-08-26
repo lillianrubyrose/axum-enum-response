@@ -34,11 +34,13 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse::Parse, parse_macro_input, Attribute, Data, DeriveInput, Error, Ident, LitStr, Meta, Token};
+use syn::{
+	parse::Parse, parse_macro_input, Attribute, Data, DeriveInput, Error, Ident, LitStr, Meta, Result, Token, Type,
+};
 
 type TokenStream2 = proc_macro2::TokenStream;
 
-#[proc_macro_derive(EnumIntoResponse, attributes(status_code, key, body))]
+#[proc_macro_derive(EnumIntoResponse, attributes(status_code, body, key, from))]
 pub fn enum_into_response(input: TokenStream) -> TokenStream {
 	let input = parse_macro_input!(input as DeriveInput);
 	match impl_enum_into_response(input) {
@@ -47,7 +49,7 @@ pub fn enum_into_response(input: TokenStream) -> TokenStream {
 	}
 }
 
-fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
+fn impl_enum_into_response(input: DeriveInput) -> Result<TokenStream> {
 	let enum_name = input.ident;
 	let Data::Enum(data_enum) = input.data else {
 		return Err(Error::new_spanned(
@@ -56,13 +58,23 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 		));
 	};
 
-	let match_branches = data_enum.variants.into_iter().map(|variant| {
+	let (match_branches, impls) = data_enum.variants.into_iter().map(|variant| {
 		let ident = &variant.ident;
-		let body_field = parse_fields(&variant.fields)?;
-		let AttributeData { status_code, body } = parse_attributes(ident, &variant.attrs)?;
+		let field_attributes = parse_field_attributes(&variant.fields)?;
+		let VariantAttributes { status_code, body } = parse_attributes(ident, &variant.attrs)?;
 
-		syn::Result::Ok(if let Some(body_field) = body_field {
-			if let Some(key) = body_field.json_key {
+		let match_branches = if let Some(FieldAttributes { key, from_ty }) = &field_attributes {
+			if from_ty.is_some() {
+				if let Some(key) = key {
+					quote! {
+						#enum_name::#ident(v) => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([(#key, v.to_string())])).into_response())),
+					}
+				} else {
+					quote! {
+						#enum_name::#ident(v) => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([("error", v.to_string())])).into_response())),
+					}
+				}
+			} else if let Some(key) = key {
 				quote! {
 					#enum_name::#ident(v) => (::axum::http::StatusCode::#status_code, Some(::axum::Json(::std::collections::HashMap::from([(#key, v)])).into_response())),
 				}
@@ -80,10 +92,21 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 			quote! {
 				#enum_name::#ident => (::axum::http::StatusCode::#status_code, None),
 			}
-		})
-	});
+		};
 
-	let match_branches = match_branches.collect::<syn::Result<Vec<_>>>()?;
+		Result::Ok((match_branches, if let Some(FieldAttributes { from_ty: Some(ty), .. }) = field_attributes {
+			Some(quote! {
+			impl From<#ty> for #enum_name {
+				fn from(value: #ty) -> Self {
+					Self::#ident(value)
+				}
+			}
+			})
+		} else {
+			None
+		}))
+	}).collect::<Result<(Vec<_>, Vec<_>)>>()?;
+
 	let output = quote! {
 		impl ::axum::response::IntoResponse for #enum_name {
 			fn into_response(self) -> ::axum::response::Response {
@@ -104,16 +127,19 @@ fn impl_enum_into_response(input: DeriveInput) -> syn::Result<TokenStream> {
 				::axum::response::IntoResponse::into_response(value)
 			}
 		}
+
+		#( #impls )*
 	};
 
 	Ok(output.into())
 }
 
-struct FieldData {
-	json_key: Option<TokenStream2>,
+struct FieldAttributes {
+	key: Option<TokenStream2>,
+	from_ty: Option<Type>,
 }
 
-fn parse_fields(fields: &syn::Fields) -> syn::Result<Option<FieldData>> {
+fn parse_field_attributes(fields: &syn::Fields) -> Result<Option<FieldAttributes>> {
 	let mut fields = fields.iter();
 	let Some(field) = fields.next() else {
 		return Ok(None);
@@ -133,29 +159,38 @@ fn parse_fields(fields: &syn::Fields) -> syn::Result<Option<FieldData>> {
 		));
 	}
 
-	let mut json_key = None;
+	let mut key = None;
+	let mut from_ty = None;
 
 	for attribute in &field.attrs {
 		let Some(iden) = attribute.path().get_ident() else {
 			return Err(Error::new_spanned(attribute, "You must name attributes"));
 		};
 
-		if let "key" = iden.to_string().as_str() {
-			if let Meta::List(list) = &attribute.meta {
-				let tokens = &list.tokens;
-				json_key = Some(quote! {
-					#tokens
-				});
-			} else {
-				return Err(Error::new_spanned(attribute, "'key' attribute value must be a string"));
+		match iden.to_string().as_str() {
+			"key" => {
+				if let Meta::List(list) = &attribute.meta {
+					let tokens = &list.tokens;
+					key = Some(quote! {
+						#tokens
+					});
+				} else {
+					return Err(Error::new_spanned(attribute, "'key' attribute value must be a string"));
+				}
 			}
+
+			"from" => {
+				from_ty = Some(field.ty.clone());
+			}
+
+			_ => {}
 		}
 	}
 
-	Ok(Some(FieldData { json_key }))
+	Ok(Some(FieldAttributes { key, from_ty }))
 }
 
-struct AttributeData {
+struct VariantAttributes {
 	status_code: TokenStream2,
 	body: Option<BodyAttribute>,
 }
@@ -166,7 +201,7 @@ struct BodyAttribute {
 }
 
 impl Parse for BodyAttribute {
-	fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+	fn parse(input: syn::parse::ParseStream) -> Result<Self> {
 		let first = input.parse::<LitStr>()?;
 		let mut second: Option<LitStr> = None;
 
@@ -189,7 +224,7 @@ impl Parse for BodyAttribute {
 	}
 }
 
-fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<AttributeData> {
+fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> Result<VariantAttributes> {
 	if attributes.is_empty() {
 		return Err(Error::new_spanned(
 			ident,
@@ -222,5 +257,5 @@ fn parse_attributes(ident: &Ident, attributes: &Vec<Attribute>) -> syn::Result<A
 		return Err(Error::new_spanned(ident, "'status_code' attribute must be specified"));
 	};
 
-	Ok(AttributeData { status_code, body })
+	Ok(VariantAttributes { status_code, body })
 }

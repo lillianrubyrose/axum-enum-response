@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 use axum::{
 	body::Body,
 	http::{Response, StatusCode},
@@ -20,6 +22,8 @@ enum TestResponse {
 	Unauthorized(UnauthorizedStruct),
 	#[status_code(INTERNAL_SERVER_ERROR)]
 	InternalServerError,
+	#[status_code(INTERNAL_SERVER_ERROR)]
+	FromUtf8Error(#[from] FromUtf8Error),
 }
 
 async fn get_body(res: Response<Body>) -> String {
